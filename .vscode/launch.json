@@ -1,0 +1,14 @@
+{
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Spring Boot-TrafficViolationDetectionApplication<Traffic-Violation-Detection>",
+            "request": "launch",
+            "cwd": "${workspaceFolder}",
+            "mainClass": "com.Riphah.PDC.Traffic.Violation.Detection.TrafficViolationDetectionApplication",
+            "projectName": "Traffic-Violation-Detection",
+            "args": "",
+            "envFile": "${workspaceFolder}/.env"
+        }
+    ]
+}
