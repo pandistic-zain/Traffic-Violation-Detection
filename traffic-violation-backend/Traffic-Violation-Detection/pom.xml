@@ -40,8 +40,9 @@
 		<dependency>
 			<groupId>org.mongodb</groupId>
 			<artifactId>mongodb-driver-sync</artifactId>
-			<version>4.11.1</version> <!-- or the latest version -->
-		</dependency>		
+			<version>4.9.1</version> <!-- Use the latest stable version -->
+		</dependency>
+			
 	
 		<!-- Spring Boot Starter Web -->
 		<dependency>
