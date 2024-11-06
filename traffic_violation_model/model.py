@@ -4,7 +4,7 @@ import numpy as np
 # Load YOLO model
 def load_model():
     # Load YOLO weights and configuration files
-    net = cv2.dnn.readNet("yolov3.weights", "yolov3.cfg")
+    net = cv2.dnn.readNet("yolov8.weights", "yolov8.cfg")
     layer_names = net.getLayerNames()
     output_layers = [layer_names[i[0] - 1] for i in net.getUnconnectedOutLayers()]
     return net, output_layers

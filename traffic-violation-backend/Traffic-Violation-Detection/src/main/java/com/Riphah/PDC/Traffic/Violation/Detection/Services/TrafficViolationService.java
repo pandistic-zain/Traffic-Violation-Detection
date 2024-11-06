@@ -3,7 +3,16 @@ package com.Riphah.PDC.Traffic.Violation.Detection.Services;
 import com.Riphah.PDC.Traffic.Violation.Detection.Entity.TrafficViolation;
 import com.Riphah.PDC.Traffic.Violation.Detection.Repository.TrafficViolationRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 import org.opencv.core.Mat;
 import org.opencv.imgcodecs.Imgcodecs;
@@ -12,14 +21,19 @@ import org.opencv.videoio.VideoCapture;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.*;
 
 @Service
 public class TrafficViolationService {
 
     @Autowired
     private TrafficViolationRepository repository;
+
+    @Autowired
+    private RestTemplate restTemplate;
 
     public List<TrafficViolation> getAllViolations() {
         return repository.findAll();
@@ -32,7 +46,7 @@ public class TrafficViolationService {
     public void saveVideoFile(MultipartFile file, String uploadDir) throws IOException {
         File directory = new File(uploadDir);
         if (!directory.exists()) {
-            directory.mkdirs(); // Create the directory if it does not exist
+            directory.mkdirs(); // Create directory if it does not exist
         }
 
         File videoFile = new File(directory, file.getOriginalFilename());
@@ -57,14 +71,13 @@ public class TrafficViolationService {
 
         Mat frame = new Mat();
         int frameCount = 0;
-
-        // Create output directory if it does not exist
+        List<String> framePaths = new ArrayList<>();
         File dir = new File(outputDirectory);
+
         if (!dir.exists()) {
             dir.mkdirs();
         }
 
-        List<String> framePaths = new ArrayList<>();
         while (videoCapture.read(frame)) {
             String frameFileName = String.format("%s/frame_%04d.png", outputDirectory, frameCount);
             Imgcodecs.imwrite(frameFileName, frame);
@@ -76,26 +89,18 @@ public class TrafficViolationService {
         videoCapture.release();
         System.out.println("Frame extraction completed. Total frames extracted: " + frameCount);
 
-        // Delete the original video file after frame extraction
-        deleteFile(videoFilePath);
-
-        // Process frames using multiple threads
-        processFramesInParallel(framePaths);
-
-        // // Delete extracted frames after processing
-        // deleteExtractedFrames(framePaths);
+        deleteFile(videoFilePath); // Delete original video after frame extraction
+        processFramesInParallel(framePaths); // Process frames in parallel
+        deleteExtractedFrames(framePaths); // Delete frames after processing
     }
-
-    
 
     private void processFramesInParallel(List<String> framePaths) {
         System.out.println("Starting parallel frame processing...");
-
         int availableCores = Runtime.getRuntime().availableProcessors();
-        System.out.println("Available CPU cores: " + availableCores);
-
         int framesPerThread = (int) Math.ceil((double) framePaths.size() / availableCores);
-        List<Thread> threads = new ArrayList<>();
+
+        ExecutorService executorService = Executors.newFixedThreadPool(availableCores);
+        List<Future<List<TrafficViolation>>> futures = new ArrayList<>();
 
         for (int i = 0; i < availableCores; i++) {
             int start = i * framesPerThread;
@@ -104,28 +109,29 @@ public class TrafficViolationService {
             if (start < end) {
                 List<String> framesSubset = framePaths.subList(start, end);
                 System.out.println("Assigning frames " + start + " to " + (end - 1) + " to a new thread.");
-
-                // Create and start a new thread for each subset of frames using FrameProcessor
-                FrameProcessor frameProcessor = new FrameProcessor(framesSubset);
-                Thread thread = new Thread(frameProcessor);
-                thread.start();
-                threads.add(thread);
+                futures.add(executorService.submit(new FrameProcessor(framesSubset)));
             }
         }
 
-        // Wait for all threads to complete using a simple for loop
-        for (int i = 0; i < threads.size(); i++) {
+        executorService.shutdown();
+
+        // Collect results from all threads in sequence and store in MongoDB
+        for (Future<List<TrafficViolation>> future : futures) {
             try {
-                threads.get(i).join();
-            } catch (InterruptedException e) {
-                System.out.println("Thread interrupted: " + e.getMessage());
+                List<TrafficViolation> violations = future.get();
+                for (TrafficViolation violation : violations) {
+                    saveViolation(violation);
+                    System.out.println("Stored violation in DB: " + violation);
+                }
+            } catch (InterruptedException | ExecutionException e) {
+                System.out.println("Error in thread execution: " + e.getMessage());
             }
         }
 
         System.out.println("All threads have completed processing.");
     }
 
-    private class FrameProcessor implements Runnable {
+    private class FrameProcessor implements Callable<List<TrafficViolation>> {
         private final List<String> framePaths;
 
         public FrameProcessor(List<String> framePaths) {
@@ -133,17 +139,60 @@ public class TrafficViolationService {
         }
 
         @Override
-        public void run() {
-            for (int i = 0; i < framePaths.size(); i++) {
-                String framePath = framePaths.get(i);
-                // System.out.println("Sending frame " + framePath + " to Flask microservice for processing.");
-                sendFrameToFlaskService(framePath);
+        public List<TrafficViolation> call() {
+            List<TrafficViolation> violations = new ArrayList<>();
+            for (String framePath : framePaths) {
+                TrafficViolation violation = sendFrameToFlaskService(framePath);
+                if (violation != null) {
+                    violations.add(violation);
+                }
             }
+            return violations;
         }
 
-        private void sendFrameToFlaskService(String framePath) {
-            // System.out.println("Processing frame " + framePath + " at Flask microservice...");
-            // Code for sending the frame to Flask service
+        private TrafficViolation sendFrameToFlaskService(String framePath) {
+            try {
+                byte[] frameBytes = Files.readAllBytes(new File(framePath).toPath());
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+
+                MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+                body.add("file", new ByteArrayResource(frameBytes) {
+                    @Override
+                    public String getFilename() {
+                        return "frame.png";
+                    }
+                });
+
+                HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
+                String flaskUrl = "http://localhost:5000/analyze"; // Flask endpoint
+                ResponseEntity<String> response = restTemplate.postForEntity(flaskUrl, requestEntity, String.class);
+
+                // Parse response and create TrafficViolation object
+                String responseBody = response.getBody();
+                System.out.println("Response from Flask for " + framePath + ": " + responseBody);
+
+                if (responseBody != null && responseBody.contains("violation")) { // Assuming Flask response contains 'violation'
+                    TrafficViolation violation = new TrafficViolation();
+                    violation.setVehicleNumber(parseVehicleNumber(responseBody));
+                    violation.setViolationTime(parseTimeStamp(responseBody));
+                    violation.setDetails(responseBody);
+                    return violation;
+                }
+            } catch (IOException e) {
+                System.out.println("Error sending frame to Flask: " + e.getMessage());
+            }
+            return null;
+        }
+
+        private String parseVehicleNumber(String responseBody) {
+            // Implement parsing logic based on Flask response
+            return "VEHICLE123"; // Placeholder value
+        }
+
+        private String parseTimeStamp(String responseBody) {
+            // Implement timestamp parsing logic based on Flask response
+            return "TIMESTAMP"; // Placeholder value
         }
     }
 
