@@ -165,7 +165,7 @@ public class TrafficViolationService {
                 });
 
                 HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
-                String flaskUrl = "http://localhost:5000/analyze"; // Flask endpoint
+                String flaskUrl = "http://127.0.0.1:5000/analyze"; // Flask endpoint
                 ResponseEntity<String> response = restTemplate.postForEntity(flaskUrl, requestEntity, String.class);
 
                 // Parse response and create TrafficViolation object
@@ -199,16 +199,16 @@ public class TrafficViolationService {
     private void deleteFile(String filePath) {
         File file = new File(filePath);
         if (file.exists() && file.delete()) {
-            System.out.println("Deleted file: " + filePath);
         } else {
             System.out.println("Failed to delete file: " + filePath);
         }
     }
 
     private void deleteExtractedFrames(List<String> framePaths) {
-        System.out.println("Deleting extracted frames...");
+        
         for (String framePath : framePaths) {
             deleteFile(framePath);
         }
+        System.out.println("Deleted extracted frames...");
     }
 }
