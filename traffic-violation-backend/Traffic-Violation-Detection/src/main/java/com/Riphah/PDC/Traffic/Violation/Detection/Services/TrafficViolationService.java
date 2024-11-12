@@ -3,16 +3,7 @@ package com.Riphah.PDC.Traffic.Violation.Detection.Services;
 import com.Riphah.PDC.Traffic.Violation.Detection.Entity.TrafficViolation;
 import com.Riphah.PDC.Traffic.Violation.Detection.Repository.TrafficViolationRepository;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Bean;
-import org.springframework.core.io.ByteArrayResource;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
-import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 import org.opencv.core.Mat;
 import org.opencv.imgcodecs.Imgcodecs;
@@ -21,7 +12,7 @@ import org.opencv.videoio.VideoCapture;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.nio.file.Files;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
@@ -31,9 +22,6 @@ public class TrafficViolationService {
 
     @Autowired
     private TrafficViolationRepository repository;
-
-    @Autowired
-    private RestTemplate restTemplate;
 
     public List<TrafficViolation> getAllViolations() {
         return repository.findAll();
@@ -94,107 +82,52 @@ public class TrafficViolationService {
         deleteExtractedFrames(framePaths); // Delete frames after processing
     }
 
-    private void processFramesInParallel(List<String> framePaths) {
-        System.out.println("Starting parallel frame processing...");
-        int availableCores = Runtime.getRuntime().availableProcessors();
-        int framesPerThread = (int) Math.ceil((double) framePaths.size() / availableCores);
+public void processFramesInParallel(List<String> framePaths) {
+    System.out.println("Starting parallel frame processing...");
+    
+    int availableCores = Runtime.getRuntime().availableProcessors();
+    int framesPerThread = (int) Math.ceil((double) framePaths.size() / availableCores);
+    
+    ExecutorService executorService = Executors.newFixedThreadPool(availableCores); // Use ExecutorService
+    List<Future<List<TrafficViolation>>> futures = new ArrayList<>();
 
-        ExecutorService executorService = Executors.newFixedThreadPool(availableCores);
-        List<Future<List<TrafficViolation>>> futures = new ArrayList<>();
+    // Submit tasks to process frames in parallel
+    for (int i = 0; i < availableCores; i++) {
+        int start = i * framesPerThread;
+        int end = Math.min(start + framesPerThread, framePaths.size());
 
-        for (int i = 0; i < availableCores; i++) {
-            int start = i * framesPerThread;
-            int end = Math.min(start + framesPerThread, framePaths.size());
+        if (start < end) {
+            List<String> framesSubset = framePaths.subList(start, end);
+            System.out.println("Assigning frames " + start + " to " + (end - 1) + " to a new task.");
 
-            if (start < end) {
-                List<String> framesSubset = framePaths.subList(start, end);
-                System.out.println("Assigning frames " + start + " to " + (end - 1) + " to a new thread.");
-                futures.add(executorService.submit(new FrameProcessor(framesSubset)));
-            }
-        }
-
-        executorService.shutdown();
-
-        // Collect results from all threads in sequence and store in MongoDB
-        for (Future<List<TrafficViolation>> future : futures) {
-            try {
-                List<TrafficViolation> violations = future.get();
-                for (TrafficViolation violation : violations) {
-                    saveViolation(violation);
-                    System.out.println("Stored violation in DB: " + violation);
-                }
-            } catch (InterruptedException | ExecutionException e) {
-                System.out.println("Error in thread execution: " + e.getMessage());
-            }
-        }
-
-        System.out.println("All threads have completed processing.");
-    }
-
-    private class FrameProcessor implements Callable<List<TrafficViolation>> {
-        private final List<String> framePaths;
-
-        public FrameProcessor(List<String> framePaths) {
-            this.framePaths = framePaths;
-        }
-
-        @Override
-        public List<TrafficViolation> call() {
-            List<TrafficViolation> violations = new ArrayList<>();
-            for (String framePath : framePaths) {
-                TrafficViolation violation = sendFrameToFlaskService(framePath);
-                if (violation != null) {
-                    violations.add(violation);
-                }
-            }
-            return violations;
-        }
-
-        private TrafficViolation sendFrameToFlaskService(String framePath) {
-            try {
-                byte[] frameBytes = Files.readAllBytes(new File(framePath).toPath());
-                HttpHeaders headers = new HttpHeaders();
-                headers.setContentType(MediaType.MULTIPART_FORM_DATA);
-
-                MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-                body.add("file", new ByteArrayResource(frameBytes) {
-                    @Override
-                    public String getFilename() {
-                        return "frame.png";
-                    }
-                });
-
-                HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
-                String flaskUrl = "http://127.0.0.1:5000/analyze"; // Flask endpoint
-                ResponseEntity<String> response = restTemplate.postForEntity(flaskUrl, requestEntity, String.class);
-
-                // Parse response and create TrafficViolation object
-                String responseBody = response.getBody();
-                System.out.println("Response from Flask for " + framePath + ": " + responseBody);
-
-                if (responseBody != null && responseBody.contains("violation")) { // Assuming Flask response contains 'violation'
-                    TrafficViolation violation = new TrafficViolation();
-                    violation.setVehicleNumber(parseVehicleNumber(responseBody));
-                    violation.setViolationTime(parseTimeStamp(responseBody));
-                    violation.setDetails(responseBody);
-                    return violation;
-                }
-            } catch (IOException e) {
-                System.out.println("Error sending frame to Flask: " + e.getMessage());
-            }
-            return null;
-        }
-
-        private String parseVehicleNumber(String responseBody) {
-            // Implement parsing logic based on Flask response
-            return "VEHICLE123"; // Placeholder value
-        }
-
-        private String parseTimeStamp(String responseBody) {
-            // Implement timestamp parsing logic based on Flask response
-            return "TIMESTAMP"; // Placeholder value
+            // Submit FrameProcessor task to executor service
+            Future<List<TrafficViolation>> future = executorService.submit(new FrameProcessor(framesSubset));
+            futures.add(future);
         }
     }
+
+    // Thread Synchronization with join(): If you were using Thread directly (not ExecutorService), you would invoke join() on each thread to ensure that the main thread waits for each worker thread to complete. However, with ExecutorService and Future, join() is not necessary because get() on a Future already blocks until the task is complete.
+    for (int i = 0; i < futures.size(); i++) {
+        try {
+            List<TrafficViolation> violations = futures.get(i).get(); // Retrieve the result
+            if (violations != null && !violations.isEmpty()) {
+                for (int j = 0; j < violations.size(); j++) {
+                    saveViolation(violations.get(j));  // Save each violation
+                }
+                System.out.println("Stored violation in DB");
+            }
+        } catch (InterruptedException | ExecutionException e) {
+            System.out.println("Error processing violation results: " + e.getMessage());
+        }
+    }
+
+    // Shutdown the executor
+    executorService.shutdown();
+    System.out.println("All threads have completed processing.");
+}
+
+    
+    
 
     private void deleteFile(String filePath) {
         File file = new File(filePath);

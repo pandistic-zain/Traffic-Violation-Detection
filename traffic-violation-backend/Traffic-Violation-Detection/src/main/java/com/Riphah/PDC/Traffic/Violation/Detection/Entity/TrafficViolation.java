@@ -14,8 +14,5 @@ import org.springframework.data.mongodb.core.mapping.Document;
 public class TrafficViolation {
     @Id
     private String id;                 // MongoDB document ID
-    private String vehicleNumber;       // Vehicle number as a unique identifier
     private String violationType;       // Type of violation (e.g., speeding, signal jump)
-    private String violationTime;             // Time of the violation
-    private String details;             // Additional details or description of the violation
 }
