@@ -54,7 +54,7 @@ public class FrameProcessor implements Callable<List<TrafficViolation>> {
             });
 
             HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
-            String flaskUrl = "https://eaf5-35-236-189-122.ngrok-free.app/analyze";
+            String flaskUrl = "http://localhost:5000/analyze";
             ResponseEntity<String> response = restTemplate.postForEntity(flaskUrl, requestEntity, String.class);
 
             if (response.getStatusCode().is2xxSuccessful()) {
