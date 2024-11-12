@@ -54,19 +54,21 @@ public class FrameProcessor implements Callable<List<TrafficViolation>> {
             });
 
             HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
-            String flaskUrl = "http://localhost:5000/analyze";
+            String flaskUrl = "https://f64e-34-106-188-43.ngrok-free.app/analyze";
+            System.out.println("Sending request to Flask at URL: " + flaskUrl);
+
             ResponseEntity<String> response = restTemplate.postForEntity(flaskUrl, requestEntity, String.class);
 
             if (response.getStatusCode().is2xxSuccessful()) {
                 String responseBody = response.getBody();
-                System.out.println("Response from Flask for " + framePath + ": " + responseBody);
+                System.out.println("Received successful response from Flask for " + framePath + ": " + responseBody);
 
                 if (responseBody != null && responseBody.contains("violation")) {
                     TrafficViolation violation = new TrafficViolation();
                     return violation;
                 }
             } else {
-                System.out.println("Received error response from Flask: " + response.getStatusCode());
+                System.out.println("Error response from Flask: Status code - " + response.getStatusCode());
             }
         } catch (IOException e) {
             System.out.println("Error reading frame file: " + e.getMessage());
@@ -75,5 +77,4 @@ public class FrameProcessor implements Callable<List<TrafficViolation>> {
         }
         return null;
     }
-
 }
