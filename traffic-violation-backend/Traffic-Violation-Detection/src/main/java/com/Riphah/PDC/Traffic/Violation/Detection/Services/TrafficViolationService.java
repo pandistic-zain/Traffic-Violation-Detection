@@ -39,7 +39,7 @@ public class TrafficViolationService {
     public void saveVideoFile(MultipartFile file, String uploadDir) throws IOException {
         File directory = new File(uploadDir);
         if (!directory.exists()) {
-            directory.mkdirs(); // Create directory if it does not exist
+            directory.mkdirs();
         }
 
         File videoFile = new File(directory, file.getOriginalFilename());
@@ -49,8 +49,7 @@ public class TrafficViolationService {
 
         System.out.println("Received video file: " + videoFile.getAbsolutePath());
 
-        // Call the extractFrames method after saving the video
-        String outputFramesDir = "directory/output/frames/"; // Define your output directory for frames
+        String outputFramesDir = "directory/output/frames/";
         extractFrames(videoFile.getAbsolutePath(), outputFramesDir);
     }
 
@@ -82,8 +81,8 @@ public class TrafficViolationService {
         videoCapture.release();
         System.out.println("Frame extraction completed. Total frames extracted: " + frameCount);
 
-        deleteFile(videoFilePath); // Delete original video after frame extraction
-        processFramesInParallel(framePaths); // Process frames in parallel
+        deleteFile(videoFilePath);
+        processFramesInParallel(framePaths);
     }
 
     public void processFramesInParallel(List<String> framePaths) {
@@ -128,12 +127,10 @@ public class TrafficViolationService {
             System.out.println("No frames to reconstruct.");
             return;
         }
-    
-        // Sort the frame paths to maintain the correct order
+
         framePaths.sort(Comparator.naturalOrder());
         System.out.println("Processed frames are sorted successfully...");
-    
-        // Read the first frame to get the video dimensions
+
         Mat firstFrame = Imgcodecs.imread(framePaths.get(0));
         if (firstFrame.empty()) {
             System.out.println("Error: First frame is empty. Cannot determine frame size.");
@@ -142,8 +139,7 @@ public class TrafficViolationService {
         int width = firstFrame.width();
         int height = firstFrame.height();
         Size frameSize = new Size(width, height);
-    
-        // Ensure the output directory exists
+
         File outputFile = new File(outputVideoPath);
         File outputDir = outputFile.getParentFile();
         if (outputDir != null && !outputDir.exists()) {
@@ -154,17 +150,14 @@ public class TrafficViolationService {
                 return;
             }
         }
-    
-        // Create a VideoWriter object with a compatible codec
+
         VideoWriter videoWriter = new VideoWriter(outputVideoPath, VideoWriter.fourcc('X', 'V', 'I', 'D'), 30, frameSize);
-    
-        // Check if VideoWriter successfully opened
+
         if (!videoWriter.isOpened()) {
             System.out.println("Error: Cannot open video writer. Please check codec and output path.");
             return;
         }
-    
-        // Write each processed frame to the video
+
         for (String framePath : framePaths) {
             Mat frame = Imgcodecs.imread(framePath);
             if (frame.empty()) {
@@ -173,27 +166,24 @@ public class TrafficViolationService {
             }
             videoWriter.write(frame);
         }
-    
+
         videoWriter.release();
         System.out.println("Video reconstruction completed: " + outputVideoPath);
-    
-        // Save reconstructed video to the database
+
         saveReconstructedVideoToDatabase(outputVideoPath);
+        deleteExtractedFrames(framePaths);  // Delete extracted frames
+        deleteProcessedFrames(outputVideoPath);  // Delete processed video after saving to database
     }
-    
+
     private void saveReconstructedVideoToDatabase(String videoPath) {
         try {
-            // Read video file into byte array
             byte[] videoData = Files.readAllBytes(Path.of(videoPath));
-
-            // Create a new TrafficViolation entity with the video data
             TrafficViolation violation = new TrafficViolation(
-                null,                     // ID (auto-generated)
-                videoData,                // Processed video data
-                LocalDateTime.now()       // Timestamp
+                null,
+                videoData,
+                LocalDateTime.now()
             );
 
-            // Save the violation entry to the database
             repository.save(violation);
             System.out.println("Reconstructed video saved to the database.");
 
@@ -209,5 +199,17 @@ public class TrafficViolationService {
         } else {
             System.out.println("Failed to delete file: " + filePath);
         }
+    }
+
+    private void deleteExtractedFrames(List<String> framePaths) {
+        for (String framePath : framePaths) {
+            deleteFile(framePath);
+        }
+        System.out.println("All extracted frames deleted successfully.");
+    }
+
+    private void deleteProcessedFrames(String processedVideoPath) {
+        deleteFile(processedVideoPath);
+        System.out.println("Processed video file deleted successfully.");
     }
 }
