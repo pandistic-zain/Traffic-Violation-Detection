@@ -6,14 +6,19 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import org.opencv.core.Mat;
+import org.opencv.core.Size;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.videoio.VideoCapture;
+import org.opencv.videoio.VideoWriter;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.*;
 
@@ -82,63 +87,109 @@ public class TrafficViolationService {
         deleteExtractedFrames(framePaths); // Delete frames after processing
     }
 
-public void processFramesInParallel(List<String> framePaths) {
-    System.out.println("Starting parallel frame processing...");
-    
-    int availableCores = Runtime.getRuntime().availableProcessors();
-    int framesPerThread = (int) Math.ceil((double) framePaths.size() / availableCores);
-    
-    ExecutorService executorService = Executors.newFixedThreadPool(availableCores); // Use ExecutorService
-    List<Future<List<TrafficViolation>>> futures = new ArrayList<>();
+    public void processFramesInParallel(List<String> framePaths) {
+        System.out.println("Starting parallel frame processing...");
 
-    // Submit tasks to process frames in parallel
-    for (int i = 0; i < availableCores; i++) {
-        int start = i * framesPerThread;
-        int end = Math.min(start + framesPerThread, framePaths.size());
+        int availableCores = Runtime.getRuntime().availableProcessors();
+        int framesPerThread = (int) Math.ceil((double) framePaths.size() / availableCores);
 
-        if (start < end) {
-            List<String> framesSubset = framePaths.subList(start, end);
-            System.out.println("Assigning frames " + start + " to " + (end - 1) + " to a new task.");
+        ExecutorService executorService = Executors.newFixedThreadPool(availableCores);
+        List<Future<List<TrafficViolation>>> futures = new ArrayList<>();
 
-            // Submit FrameProcessor task to executor service
-            Future<List<TrafficViolation>> future = executorService.submit(new FrameProcessor(framesSubset));
-            futures.add(future);
-        }
-    }
+        for (int i = 0; i < availableCores; i++) {
+            int start = i * framesPerThread;
+            int end = Math.min(start + framesPerThread, framePaths.size());
 
-    // Thread Synchronization with join(): If you were using Thread directly (not ExecutorService), you would invoke join() on each thread to ensure that the main thread waits for each worker thread to complete. However, with ExecutorService and Future, join() is not necessary because get() on a Future already blocks until the task is complete.
-    for (int i = 0; i < futures.size(); i++) {
-        try {
-            List<TrafficViolation> violations = futures.get(i).get(); // Retrieve the result
-            if (violations != null && !violations.isEmpty()) {
-                for (int j = 0; j < violations.size(); j++) {
-                    saveViolation(violations.get(j));  // Save each violation
-                }
-                System.out.println("Stored violation in DB");
+            if (start < end) {
+                List<String> framesSubset = framePaths.subList(start, end);
+                System.out.println("Assigning frames " + start + " to " + (end - 1) + " to a new task.");
+
+                Future<List<TrafficViolation>> future = executorService.submit(new FrameProcessor(framesSubset));
+                futures.add(future);
             }
-        } catch (InterruptedException | ExecutionException e) {
-            System.out.println("Error processing violation results: " + e.getMessage());
         }
+
+        List<String> processedFramePaths = new ArrayList<>();
+        for (Future<List<TrafficViolation>> future : futures) {
+            try {
+                List<TrafficViolation> violations = future.get();
+                violations.forEach(violation -> repository.save(violation));
+            } catch (InterruptedException | ExecutionException e) {
+                System.out.println("Error processing frame results: " + e.getMessage());
+            }
+        }
+
+        reconstructVideoFromFrames(processedFramePaths, "output/video_output.mp4");
+        executorService.shutdown();
+        System.out.println("All threads have completed processing.");
     }
 
-    // Shutdown the executor
-    executorService.shutdown();
-    System.out.println("All threads have completed processing.");
+public void reconstructVideoFromFrames(List<String> framePaths, String outputVideoPath) {
+    if (framePaths.isEmpty()) {
+        System.out.println("No frames to reconstruct.");
+        return;
+    }
+
+    framePaths.sort(Comparator.naturalOrder());
+    Mat firstFrame = Imgcodecs.imread(framePaths.get(0));
+    int width = firstFrame.width();
+    int height = firstFrame.height();
+    Size frameSize = new Size(width, height);
+
+    VideoWriter videoWriter = new VideoWriter(outputVideoPath, VideoWriter.fourcc('M', 'J', 'P', 'G'), 30, frameSize);
+
+    if (!videoWriter.isOpened()) {
+        System.out.println("Error: Cannot open video writer.");
+        return;
+    }
+
+    for (String framePath : framePaths) {
+        Mat frame = Imgcodecs.imread(framePath);
+        if (frame.empty()) {
+            System.out.println("Warning: Skipping empty frame at " + framePath);
+            continue;
+        }
+        videoWriter.write(frame);
+    }
+
+    videoWriter.release();
+    System.out.println("Video reconstruction completed: " + outputVideoPath);
+
+    // Save reconstructed video to database
+    saveReconstructedVideoToDatabase(outputVideoPath);
 }
 
-    
-    
+private void saveReconstructedVideoToDatabase(String videoPath) {
+    try {
+        // Read video file into byte array
+        byte[] videoData = Files.readAllBytes(Path.of(videoPath));
+        
+        // Create a new TrafficViolation entity with the video data
+        TrafficViolation violation = new TrafficViolation(
+            null,                     // ID (auto-generated)                       
+            videoData,                // Processed video data
+            LocalDateTime.now()       // Timestamp
+        );
+        
+        // Save the violation entry to the database
+        repository.save(violation);
+        System.out.println("Reconstructed video saved to the database.");
+        
+    } catch (IOException e) {
+        System.out.println("Error reading reconstructed video file: " + e.getMessage());
+    }
+}
 
     private void deleteFile(String filePath) {
         File file = new File(filePath);
         if (file.exists() && file.delete()) {
+            System.out.println("Deleted file: " + filePath);
         } else {
             System.out.println("Failed to delete file: " + filePath);
         }
     }
 
     private void deleteExtractedFrames(List<String> framePaths) {
-        
         for (String framePath : framePaths) {
             deleteFile(framePath);
         }
