@@ -158,7 +158,19 @@ public class TrafficViolationService {
         // Save reconstructed video to database
         saveReconstructedVideoToDatabase(outputVideoPath);
     }
+// Helper method to get frame paths from the directory
+public List<String> getFramePathsFromDirectory(String directoryPath) {
+    File dir = new File(directoryPath);
+    File[] files = dir.listFiles((dir1, name) -> name.endsWith(".png")); // Assuming frames are PNG images
 
+    List<String> framePaths = new ArrayList<>();
+    if (files != null) {
+        for (File file : files) {
+            framePaths.add(file.getAbsolutePath());
+        }
+    }
+    return framePaths;
+}
     private void saveReconstructedVideoToDatabase(String videoPath) {
         try {
             // Read video file into byte array
