@@ -43,12 +43,14 @@ public class FrameProcessor implements Callable<List<TrafficViolation>> {
         return violations;
     }
 
+    @SuppressWarnings("null")
     private TrafficViolation sendFrameToFlaskService(String framePath) {
         try {
+            // Read the frame file into bytes
             byte[] frameBytes = Files.readAllBytes(Paths.get(framePath));
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.MULTIPART_FORM_DATA);
-
+    
             MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
             body.add("file", new ByteArrayResource(frameBytes) {
                 @Override
@@ -56,26 +58,51 @@ public class FrameProcessor implements Callable<List<TrafficViolation>> {
                     return new File(framePath).getName(); // Use actual filename
                 }
             });
-
+    
             HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
-            String flaskUrl = "https://cf36-34-133-115-109.ngrok-free.app/analyze";
+            String flaskUrl = "https://fcc3-34-133-115-109.ngrok-free.app/analyze";
             System.out.println("Sending request to Flask at URL: " + flaskUrl);
-
+    
             // Send request and receive image response
             ResponseEntity<byte[]> response = restTemplate.postForEntity(flaskUrl, requestEntity, byte[].class);
-
+    
             if (response.getStatusCode().is2xxSuccessful()) {
-                // Save the processed frame with the original frame name
-                String processedFramePath = framePath.replace("frames", "processed_frames");  // Save in "processed_frames" folder
-                Files.write(Paths.get(processedFramePath), response.getBody());
-                System.out.println("Processed frame saved: " + processedFramePath);
-
-                // Create a TrafficViolation instance
-                return new TrafficViolation(
-                    null,
-                    response.getBody(), // Save processed video data here
-                    LocalDateTime.now()
-                );
+                // Debugging response headers and content type
+                System.out.println("Flask Response Status: " + response.getStatusCode());
+                System.out.println("Response Content-Type: " + response.getHeaders().getContentType());
+                System.out.println("Response Body Length: " + response.getBody().length);
+    
+                // Ensure the response body is not empty and contains valid image data
+                if (response.getBody() != null && response.getBody().length > 0) {
+                    // Create a new directory for processed frames (if it doesn't exist)
+                    File processedFrameDirectory = new File("processed_frames");
+                    if (!processedFrameDirectory.exists()) {
+                        if (processedFrameDirectory.mkdirs()) {
+                            System.out.println("Created processed frames directory: processed_frames");
+                        } else {
+                            System.out.println("Failed to create directory: processed_frames");
+                        }
+                    }
+    
+                    // Define the path for the processed frame to be saved in the new directory
+                    String processedFramePath = "processed_frames" + File.separator + new File(framePath).getName();
+    
+                    // Debugging where the processed file is being saved
+                    System.out.println("Saving processed frame to: " + processedFramePath);
+    
+                    // Save the processed image to the new directory
+                    Files.write(Paths.get(processedFramePath), response.getBody());
+                    System.out.println("Processed frame saved: " + processedFramePath);
+    
+                    // Create a TrafficViolation instance with the processed frame data
+                    return new TrafficViolation(
+                        null,
+                        response.getBody(), // Save processed video data here
+                        LocalDateTime.now()
+                    );
+                } else {
+                    System.out.println("Error: Received empty body from Flask for frame: " + framePath);
+                }
             } else {
                 System.out.println("Error response from Flask: Status code - " + response.getStatusCode());
             }
