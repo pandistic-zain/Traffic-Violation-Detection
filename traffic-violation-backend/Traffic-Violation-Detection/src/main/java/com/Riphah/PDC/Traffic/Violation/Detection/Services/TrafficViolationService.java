@@ -84,7 +84,6 @@ public class TrafficViolationService {
 
         deleteFile(videoFilePath); // Delete original video after frame extraction
         processFramesInParallel(framePaths); // Process frames in parallel
-        deleteExtractedFrames(framePaths); // Delete frames after processing
     }
 
     public void processFramesInParallel(List<String> framePaths) {
@@ -94,7 +93,7 @@ public class TrafficViolationService {
         int framesPerThread = (int) Math.ceil((double) framePaths.size() / availableCores);
 
         ExecutorService executorService = Executors.newFixedThreadPool(availableCores);
-        List<Future<List<TrafficViolation>>> futures = new ArrayList<>();
+        List<Future<List<String>>> futures = new ArrayList<>();
 
         for (int i = 0; i < availableCores; i++) {
             int start = i * framesPerThread;
@@ -104,22 +103,22 @@ public class TrafficViolationService {
                 List<String> framesSubset = framePaths.subList(start, end);
                 System.out.println("Assigning frames " + start + " to " + (end - 1) + " to a new task.");
 
-                Future<List<TrafficViolation>> future = executorService.submit(new FrameProcessor(framesSubset));
+                Future<List<String>> future = executorService.submit(new FrameProcessor(framesSubset));
                 futures.add(future);
             }
         }
 
-        List<String> processedFramePaths = new ArrayList<>();
-        for (Future<List<TrafficViolation>> future : futures) {
+        List<String> allProcessedFramePaths = new ArrayList<>();
+        for (Future<List<String>> future : futures) {
             try {
-                List<TrafficViolation> violations = future.get();
-                violations.forEach(violation -> repository.save(violation));
+                List<String> processedPaths = future.get();
+                allProcessedFramePaths.addAll(processedPaths);
             } catch (InterruptedException | ExecutionException e) {
                 System.out.println("Error processing frame results: " + e.getMessage());
             }
         }
 
-        reconstructVideoFromFrames(processedFramePaths, "output/video_output.mp4");
+        reconstructVideoFromFrames(allProcessedFramePaths, "output/video_output.mp4");
         executorService.shutdown();
         System.out.println("All threads have completed processing.");
     }
@@ -130,6 +129,7 @@ public class TrafficViolationService {
             return;
         }
 
+        // Sort the frame paths to maintain the correct order
         framePaths.sort(Comparator.naturalOrder());
         Mat firstFrame = Imgcodecs.imread(framePaths.get(0));
         int width = firstFrame.width();
@@ -143,6 +143,7 @@ public class TrafficViolationService {
             return;
         }
 
+        // Write each processed frame to the video
         for (String framePath : framePaths) {
             Mat frame = Imgcodecs.imread(framePath);
             if (frame.empty()) {
@@ -158,19 +159,7 @@ public class TrafficViolationService {
         // Save reconstructed video to database
         saveReconstructedVideoToDatabase(outputVideoPath);
     }
-// Helper method to get frame paths from the directory
-public List<String> getFramePathsFromDirectory(String directoryPath) {
-    File dir = new File(directoryPath);
-    File[] files = dir.listFiles((dir1, name) -> name.endsWith(".png")); // Assuming frames are PNG images
 
-    List<String> framePaths = new ArrayList<>();
-    if (files != null) {
-        for (File file : files) {
-            framePaths.add(file.getAbsolutePath());
-        }
-    }
-    return framePaths;
-}
     private void saveReconstructedVideoToDatabase(String videoPath) {
         try {
             // Read video file into byte array
@@ -178,7 +167,7 @@ public List<String> getFramePathsFromDirectory(String directoryPath) {
 
             // Create a new TrafficViolation entity with the video data
             TrafficViolation violation = new TrafficViolation(
-                null,                     // ID (auto-generated)                       
+                null,                     // ID (auto-generated)
                 videoData,                // Processed video data
                 LocalDateTime.now()       // Timestamp
             );
@@ -199,12 +188,5 @@ public List<String> getFramePathsFromDirectory(String directoryPath) {
         } else {
             System.out.println("Failed to delete file: " + filePath);
         }
-    }
-
-    private void deleteExtractedFrames(List<String> framePaths) {
-        for (String framePath : framePaths) {
-            deleteFile(framePath);
-        }
-        System.out.println("Deleted extracted frames...");
     }
 }
