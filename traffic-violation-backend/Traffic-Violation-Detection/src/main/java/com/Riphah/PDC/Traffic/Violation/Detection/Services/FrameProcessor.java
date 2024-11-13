@@ -59,7 +59,7 @@ public class FrameProcessor implements Callable<List<String>> {
             });
 
             HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
-            String flaskUrl = "https://23c7-34-125-72-221.ngrok-free.app/analyze";
+            String flaskUrl = "https://56db-35-193-0-52.ngrok-free.app/analyze";
             System.out.println("Sending request to Flask at URL: " + flaskUrl);
 
             ResponseEntity<byte[]> response = restTemplate.postForEntity(flaskUrl, requestEntity, byte[].class);

@@ -83,6 +83,7 @@ public class TrafficViolationService {
 
         deleteFile(videoFilePath);
         processFramesInParallel(framePaths);
+        deleteExtractedFrames(framePaths);
     }
 
     public void processFramesInParallel(List<String> framePaths) {
@@ -172,7 +173,6 @@ public class TrafficViolationService {
 
         saveReconstructedVideoToDatabase(outputVideoPath);
         deleteExtractedFrames(framePaths);  // Delete extracted frames
-        deleteProcessedFrames(outputVideoPath);  // Delete processed video after saving to database
     }
 
     private void saveReconstructedVideoToDatabase(String videoPath) {
@@ -206,10 +206,5 @@ public class TrafficViolationService {
             deleteFile(framePath);
         }
         System.out.println("All extracted frames deleted successfully.");
-    }
-
-    private void deleteProcessedFrames(String processedVideoPath) {
-        deleteFile(processedVideoPath);
-        System.out.println("Processed video file deleted successfully.");
     }
 }
