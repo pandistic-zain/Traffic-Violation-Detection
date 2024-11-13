@@ -128,21 +128,42 @@ public class TrafficViolationService {
             System.out.println("No frames to reconstruct.");
             return;
         }
-
+    
         // Sort the frame paths to maintain the correct order
         framePaths.sort(Comparator.naturalOrder());
+        System.out.println("Processed frames are sorted successfully...");
+    
+        // Read the first frame to get the video dimensions
         Mat firstFrame = Imgcodecs.imread(framePaths.get(0));
+        if (firstFrame.empty()) {
+            System.out.println("Error: First frame is empty. Cannot determine frame size.");
+            return;
+        }
         int width = firstFrame.width();
         int height = firstFrame.height();
         Size frameSize = new Size(width, height);
-
-        VideoWriter videoWriter = new VideoWriter(outputVideoPath, VideoWriter.fourcc('M', 'J', 'P', 'G'), 30, frameSize);
-
+    
+        // Ensure the output directory exists
+        File outputFile = new File(outputVideoPath);
+        File outputDir = outputFile.getParentFile();
+        if (outputDir != null && !outputDir.exists()) {
+            if (outputDir.mkdirs()) {
+                System.out.println("Created output directory: " + outputDir.getAbsolutePath());
+            } else {
+                System.out.println("Error: Failed to create output directory.");
+                return;
+            }
+        }
+    
+        // Create a VideoWriter object with a compatible codec
+        VideoWriter videoWriter = new VideoWriter(outputVideoPath, VideoWriter.fourcc('X', 'V', 'I', 'D'), 30, frameSize);
+    
+        // Check if VideoWriter successfully opened
         if (!videoWriter.isOpened()) {
-            System.out.println("Error: Cannot open video writer.");
+            System.out.println("Error: Cannot open video writer. Please check codec and output path.");
             return;
         }
-
+    
         // Write each processed frame to the video
         for (String framePath : framePaths) {
             Mat frame = Imgcodecs.imread(framePath);
@@ -152,14 +173,14 @@ public class TrafficViolationService {
             }
             videoWriter.write(frame);
         }
-
+    
         videoWriter.release();
         System.out.println("Video reconstruction completed: " + outputVideoPath);
-
-        // Save reconstructed video to database
+    
+        // Save reconstructed video to the database
         saveReconstructedVideoToDatabase(outputVideoPath);
     }
-
+    
     private void saveReconstructedVideoToDatabase(String videoPath) {
         try {
             // Read video file into byte array
