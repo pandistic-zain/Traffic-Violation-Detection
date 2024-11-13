@@ -124,61 +124,61 @@ public class TrafficViolationService {
         System.out.println("All threads have completed processing.");
     }
 
-public void reconstructVideoFromFrames(List<String> framePaths, String outputVideoPath) {
-    if (framePaths.isEmpty()) {
-        System.out.println("No frames to reconstruct.");
-        return;
-    }
-
-    framePaths.sort(Comparator.naturalOrder());
-    Mat firstFrame = Imgcodecs.imread(framePaths.get(0));
-    int width = firstFrame.width();
-    int height = firstFrame.height();
-    Size frameSize = new Size(width, height);
-
-    VideoWriter videoWriter = new VideoWriter(outputVideoPath, VideoWriter.fourcc('M', 'J', 'P', 'G'), 30, frameSize);
-
-    if (!videoWriter.isOpened()) {
-        System.out.println("Error: Cannot open video writer.");
-        return;
-    }
-
-    for (String framePath : framePaths) {
-        Mat frame = Imgcodecs.imread(framePath);
-        if (frame.empty()) {
-            System.out.println("Warning: Skipping empty frame at " + framePath);
-            continue;
+    public void reconstructVideoFromFrames(List<String> framePaths, String outputVideoPath) {
+        if (framePaths.isEmpty()) {
+            System.out.println("No frames to reconstruct.");
+            return;
         }
-        videoWriter.write(frame);
+
+        framePaths.sort(Comparator.naturalOrder());
+        Mat firstFrame = Imgcodecs.imread(framePaths.get(0));
+        int width = firstFrame.width();
+        int height = firstFrame.height();
+        Size frameSize = new Size(width, height);
+
+        VideoWriter videoWriter = new VideoWriter(outputVideoPath, VideoWriter.fourcc('M', 'J', 'P', 'G'), 30, frameSize);
+
+        if (!videoWriter.isOpened()) {
+            System.out.println("Error: Cannot open video writer.");
+            return;
+        }
+
+        for (String framePath : framePaths) {
+            Mat frame = Imgcodecs.imread(framePath);
+            if (frame.empty()) {
+                System.out.println("Warning: Skipping empty frame at " + framePath);
+                continue;
+            }
+            videoWriter.write(frame);
+        }
+
+        videoWriter.release();
+        System.out.println("Video reconstruction completed: " + outputVideoPath);
+
+        // Save reconstructed video to database
+        saveReconstructedVideoToDatabase(outputVideoPath);
     }
 
-    videoWriter.release();
-    System.out.println("Video reconstruction completed: " + outputVideoPath);
+    private void saveReconstructedVideoToDatabase(String videoPath) {
+        try {
+            // Read video file into byte array
+            byte[] videoData = Files.readAllBytes(Path.of(videoPath));
 
-    // Save reconstructed video to database
-    saveReconstructedVideoToDatabase(outputVideoPath);
-}
+            // Create a new TrafficViolation entity with the video data
+            TrafficViolation violation = new TrafficViolation(
+                null,                     // ID (auto-generated)                       
+                videoData,                // Processed video data
+                LocalDateTime.now()       // Timestamp
+            );
 
-private void saveReconstructedVideoToDatabase(String videoPath) {
-    try {
-        // Read video file into byte array
-        byte[] videoData = Files.readAllBytes(Path.of(videoPath));
-        
-        // Create a new TrafficViolation entity with the video data
-        TrafficViolation violation = new TrafficViolation(
-            null,                     // ID (auto-generated)                       
-            videoData,                // Processed video data
-            LocalDateTime.now()       // Timestamp
-        );
-        
-        // Save the violation entry to the database
-        repository.save(violation);
-        System.out.println("Reconstructed video saved to the database.");
-        
-    } catch (IOException e) {
-        System.out.println("Error reading reconstructed video file: " + e.getMessage());
+            // Save the violation entry to the database
+            repository.save(violation);
+            System.out.println("Reconstructed video saved to the database.");
+
+        } catch (IOException e) {
+            System.out.println("Error reading reconstructed video file: " + e.getMessage());
+        }
     }
-}
 
     private void deleteFile(String filePath) {
         File file = new File(filePath);
