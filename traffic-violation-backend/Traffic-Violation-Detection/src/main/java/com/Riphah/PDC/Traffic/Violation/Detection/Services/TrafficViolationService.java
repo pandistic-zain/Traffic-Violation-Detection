@@ -128,19 +128,21 @@ public class TrafficViolationService {
             System.out.println("No frames to reconstruct.");
             return;
         }
-
+    
+        // Sort frames using a natural order comparator to handle numeric filenames correctly
         framePaths.sort(Comparator.naturalOrder());
         System.out.println("Processed frames are sorted successfully...");
-
+    
         Mat firstFrame = Imgcodecs.imread(framePaths.get(0));
         if (firstFrame.empty()) {
             System.out.println("Error: First frame is empty. Cannot determine frame size.");
             return;
         }
+    
         int width = firstFrame.width();
         int height = firstFrame.height();
         Size frameSize = new Size(width, height);
-
+    
         File outputFile = new File(outputVideoPath);
         File outputDir = outputFile.getParentFile();
         if (outputDir != null && !outputDir.exists()) {
@@ -151,30 +153,57 @@ public class TrafficViolationService {
                 return;
             }
         }
-
+    
+        // Use XVID codec with 30 fps
         VideoWriter videoWriter = new VideoWriter(outputVideoPath, VideoWriter.fourcc('X', 'V', 'I', 'D'), 30, frameSize);
-
+    
         if (!videoWriter.isOpened()) {
             System.out.println("Error: Cannot open video writer. Please check codec and output path.");
             return;
         }
-
+    
+        int skippedFrames = 0;
+        int writtenFrames = 0;
+    
         for (String framePath : framePaths) {
-            Mat frame = Imgcodecs.imread(framePath);
-            if (frame.empty()) {
-                System.out.println("Warning: Skipping empty frame at " + framePath);
+            File frameFile = new File(framePath);
+    
+            // Check if the frame file exists and is not empty
+            if (!frameFile.exists() || frameFile.length() == 0) {
+                System.out.println("Warning: Frame file does not exist or is empty: " + framePath);
+                skippedFrames++;
                 continue;
             }
+    
+            Mat frame = Imgcodecs.imread(framePath);
+            if (frame.empty()) {
+                System.out.println("Warning: Skipping empty or corrupt frame: " + framePath);
+                skippedFrames++;
+                continue;
+            }
+    
+            // Check if frame dimensions match the first frame
+            if (frame.width() != width || frame.height() != height) {
+                System.out.println("Warning: Skipping frame with mismatched dimensions: " + framePath);
+                skippedFrames++;
+                continue;
+            }
+    
             videoWriter.write(frame);
+            writtenFrames++;
         }
-
+    
         videoWriter.release();
         System.out.println("Video reconstruction completed: " + outputVideoPath);
-
+        System.out.println("Total frames written: " + writtenFrames + ", Total frames skipped: " + skippedFrames);
+    
+        // Save video to database
         saveReconstructedVideoToDatabase(outputVideoPath);
-        deleteExtractedFrames(framePaths);  // Delete extracted frames
+    
+        // Clean up extracted frames if needed
+        deleteExtractedFrames(framePaths);
     }
-
+    
     private void saveReconstructedVideoToDatabase(String videoPath) {
         try {
             byte[] videoData = Files.readAllBytes(Path.of(videoPath));
